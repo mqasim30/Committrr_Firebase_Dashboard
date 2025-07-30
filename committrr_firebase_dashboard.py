@@ -404,9 +404,6 @@ def calculate_payment_stats(payments):
 # --- STREAMLIT DASHBOARD ---
 st.title("Payments Dashboard")
 
-# Index setup warning
-st.info("📊 **Performance Note:** This dashboard uses indexed queries for efficient data retrieval. Make sure you've updated your Firebase rules with indexing configuration.")
-
 # --- LATEST USERS SECTION ---
 st.header("👥 Latest 10 Users")
 
@@ -440,11 +437,6 @@ st.header("🎯 Latest 10 Challengers (Paying Users)")
 with st.spinner("Loading recent challengers..."):
     recent_challengers = fetch_recent_challengers(10)
 
-if not recent_challengers:
-    st.warning("No recent challengers found (users with completed payments)")
-else:
-    st.success(f"Found {len(recent_challengers)} recent challengers who made legitimate payments")
-    
     # Create DataFrame from the challengers data
     challengers_df = pd.DataFrame(recent_challengers)
     
@@ -469,47 +461,6 @@ else:
     display_cols = [col for col in display_cols if col in challengers_df.columns]
     
     st.dataframe(challengers_df[display_cols], use_container_width=True)
-    
-    # Show challenger statistics
-    st.subheader("💰 Challenger Statistics")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        total_challengers = len(recent_challengers)
-        st.metric("Active Challengers", total_challengers)
-    
-    with col2:
-        total_spent = sum(c.get('latest_payment_amount', 0) for c in recent_challengers) / 100
-        st.metric("Total Spent", f"${total_spent:.2f}")
-    
-    with col3:
-        avg_payment = total_spent / total_challengers if total_challengers > 0 else 0
-        st.metric("Avg Payment", f"${avg_payment:.2f}")
-    
-    with col4:
-        total_winnings = sum(c.get('AmountWon', 0) for c in recent_challengers)
-        st.metric("Total Winnings", f"${total_winnings:.2f}")
-    
-    # Platform breakdown for challengers
-    if recent_challengers:
-        st.subheader("📱 Challenger Platform Breakdown")
-        platform_counts = {}
-        for challenger in recent_challengers:
-            platform = challenger.get('Platform', 'Unknown')
-            platform_counts[platform] = platform_counts.get(platform, 0) + 1
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            for platform, count in platform_counts.items():
-                percentage = (count / total_challengers) * 100
-                st.write(f"**{platform}:** {count} challengers ({percentage:.1f}%)")
-        
-        with col2:
-            if len(platform_counts) > 1:
-                st.bar_chart(platform_counts)
-
 st.divider()
 
 # --- USER PROFILE SEARCH SECTION ---
@@ -591,7 +542,7 @@ if user_id_input:
 st.divider()
 
 # --- VALID PAYMENTS LAST 24 HOURS SECTION ---
-st.header("✅ Completed Payments (Last 24 Hours)")
+st.header("Payments (Last 24 Hours)")
 
 with st.spinner("Loading valid payments from last 24 hours..."):
     valid_payments_24h = fetch_valid_payments_24h()
@@ -633,84 +584,3 @@ else:
     st.dataframe(valid_df[display_cols], use_container_width=True)
 
 st.divider()
-
-# --- RECENT PAYMENTS SECTION ---
-st.header("💳 Recent Payments (All)")
-
-with st.spinner("Loading recent payments..."):
-    recent_payments = fetch_recent_payments(50)
-
-if not recent_payments:
-    st.warning("No payments found")
-else:
-    # Calculate and display stats
-    stats = calculate_payment_stats(recent_payments)
-    
-    if stats:
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Payments", stats.get('count', 0))
-        
-        with col2:
-            total_amount = stats.get('total_amount', 0)
-            st.metric("Total Amount", f"${total_amount/100:.2f}")
-        
-        with col3:
-            avg_amount = stats.get('average_amount', 0)
-            st.metric("Average Amount", f"${avg_amount/100:.2f}")
-        
-        with col4:
-            completed_count = stats.get('status_breakdown', {}).get('completed', 0)
-            st.metric("Completed", completed_count)
-    
-    # Create DataFrame for display
-    payments_df = pd.DataFrame(recent_payments)
-    
-    # Format timestamps
-    if "createdAt" in payments_df.columns:
-        payments_df["Formatted_Created"] = payments_df["createdAt"].apply(format_timestamp)
-    
-    # Format amount to dollars
-    if "amount" in payments_df.columns:
-        payments_df["Amount_USD"] = payments_df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
-    
-    # Display columns
-    display_cols = ["payment_id", "userId", "Amount_USD", "currency", "status", "challengeId", "Formatted_Created"]
-    display_cols = [col for col in display_cols if col in payments_df.columns]
-    
-    st.dataframe(payments_df[display_cols], use_container_width=True)
-
-st.divider()
-
-# --- STATUS BREAKDOWN SECTION ---
-if recent_payments:
-    st.header("📊 Payment Status Breakdown")
-    
-    status_df = pd.DataFrame(recent_payments)
-    if 'status' in status_df.columns:
-        status_counts = status_df['status'].value_counts()
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.subheader("Status Counts")
-            for status, count in status_counts.items():
-                percentage = (count / len(recent_payments)) * 100
-                if status == 'completed':
-                    st.success(f"✅ **{status.title()}:** {count} ({percentage:.1f}%)")
-                elif status == 'canceled':
-                    st.error(f"❌ **{status.title()}:** {count} ({percentage:.1f}%)")
-                else:
-                    st.info(f"ℹ️ **{status.title()}:** {count} ({percentage:.1f}%)")
-        
-        with col2:
-            st.subheader("Status Chart")
-            st.bar_chart(status_counts)
-
-# --- REFRESH BUTTON ---
-st.divider()
-if st.button("🔄 Refresh Data", type="primary"):
-    st.rerun()
-
-st.caption("Dashboard uses indexed Firebase queries for efficient data retrieval. Make sure Firebase rules are updated with indexing configuration.")
