@@ -332,7 +332,7 @@ else:
         users_df["Formatted_Active_Date"] = users_df["UserActiveDate"].apply(format_timestamp)
     
     # Display key information in a clean table
-    display_cols = ["Formatted_Join_Date", "UserName", "UserEmail", "UserCountry", "UserSource","Platform", "UserStatus", "AmountWon", "Formatted_Active_Date", "user_id"]
+    display_cols = ["Formatted_Join_Date", "UserName", "UserEmail", "UserCountry", "UserSource","ClickId","Platform", "UserStatus", "AmountWon", "Formatted_Active_Date", "user_id"]
     display_cols = [col for col in display_cols if col in users_df.columns]
     
     st.dataframe(users_df[display_cols], use_container_width=True)
