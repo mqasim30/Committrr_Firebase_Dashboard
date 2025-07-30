@@ -428,7 +428,7 @@ else:
         users_df["Formatted_Active_Date"] = users_df["UserActiveDate"].apply(format_timestamp)
     
     # Display key information in a clean table
-    display_cols = ["user_id", "UserName", "UserEmail", "UserCountry", "Platform", "UserStatus", "UserSource", "AmountWon", "Formatted_Join_Date", "Formatted_Active_Date"]
+    display_cols = ["Formatted_Join_Date", "UserName", "UserEmail", "UserCountry", "Platform", "UserStatus", "UserSource", "AmountWon", "Formatted_Active_Date", "user_id"]
     display_cols = [col for col in display_cols if col in users_df.columns]
     
     st.dataframe(users_df[display_cols], use_container_width=True)
@@ -458,9 +458,9 @@ with st.spinner("Loading recent challengers..."):
     
     # Display key challenger information
     display_cols = [
-        "user_id", "UserName", "UserEmail", "UserCountry", "Platform", 
+        "Formatted_Join_Date" , "UserName", "UserEmail", "UserCountry", "Platform", 
         "Payment_Amount_USD", "currency", "latest_challenge_id", 
-        "Formatted_Payment_Date", "AmountWon", "UserStatus", "Formatted_Join_Date"
+        "Formatted_Payment_Date", "AmountWon", "UserStatus", "user_id"
     ]
     display_cols = [col for col in display_cols if col in challengers_df.columns]
     
@@ -545,46 +545,42 @@ if user_id_input:
 
 st.divider()
 
-# --- VALID PAYMENTS LAST 24 HOURS SECTION ---
-st.header("Payments (Last 24 Hours)")
+# --- LATEST 20 PAYMENTS SECTION ---
+st.header("💸 Latest 20 Payments")
 
-with st.spinner("Loading valid payments from last 24 hours..."):
-    valid_payments_24h = fetch_valid_payments_24h()
+with st.spinner("Loading latest 20 payments..."):
+    recent_payments = fetch_recent_payments(limit=20)
 
-if not valid_payments_24h:
-    st.warning("No valid payments found in the last 24 hours")
+if not recent_payments:
+    st.warning("No payments found")
 else:
-    # Calculate stats for valid payments
-    valid_stats = calculate_payment_stats(valid_payments_24h)
-    
+    # Calculate stats for these 20 payments
+    stats = calculate_payment_stats(recent_payments)
+
+    # Show summary metrics
     col1, col2, col3 = st.columns(3)
-    
     with col1:
-        st.metric("Valid Payments (24h)", valid_stats.get('count', 0))
-    
+        st.metric("Total Payments", stats.get('count', 0))
     with col2:
-        total_valid = valid_stats.get('total_amount', 0)
-        st.metric("Total Revenue (24h)", f"${total_valid/100:.2f}")
-    
+        total_amt = stats.get('total_amount', 0)
+        st.metric("Total Revenue", f"${total_amt/100:.2f}")
     with col3:
-        avg_valid = valid_stats.get('average_amount', 0)
-        st.metric("Average Payment (24h)", f"${avg_valid/100:.2f}")
-    
-    # Create DataFrame for valid payments
-    valid_df = pd.DataFrame(valid_payments_24h)
-    
-    # Format timestamps
-    if "createdAt" in valid_df.columns:
-        valid_df["Formatted_Created"] = valid_df["createdAt"].apply(format_timestamp)
-    
-    # Format amount to dollars
-    if "amount" in valid_df.columns:
-        valid_df["Amount_USD"] = valid_df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
-    
-    # Display columns for valid payments
-    display_cols = ["payment_id", "userId", "Amount_USD", "currency", "status", "challengeId", "Formatted_Created"]
-    display_cols = [col for col in display_cols if col in valid_df.columns]
-    
-    st.dataframe(valid_df[display_cols], use_container_width=True)
+        avg_amt = stats.get('average_amount', 0)
+        st.metric("Average Payment", f"${avg_amt/100:.2f}")
+
+    # Build and display the DataFrame
+    df = pd.DataFrame(recent_payments)
+    if "createdAt" in df.columns:
+        df["Formatted_Created"] = df["createdAt"].apply(format_timestamp)
+    if "amount" in df.columns:
+        df["Amount_USD"] = df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
+
+    display_cols = [
+        "Formatted_Created", "userId", "Amount_USD", 
+        "currency", "status", "challengeId", "payment_id"
+    ]
+    display_cols = [c for c in display_cols if c in df.columns]
+
+    st.dataframe(df[display_cols], use_container_width=True)
 
 st.divider()
