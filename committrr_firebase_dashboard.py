@@ -434,37 +434,42 @@ else:
     st.dataframe(users_df[display_cols], use_container_width=True)
 
 st.divider()
+# --- LATEST 20 CHALLENGERS SECTION ---
+st.header("🎯 Latest 20 Challengers (Paying Users)")
 
-# --- RECENT CHALLENGERS SECTION ---
-st.header("🎯 Latest 10 Challengers (Paying Users)")
+with st.spinner("Loading latest challengers..."):
+    challengers = fetch_recent_challengers(limit=20)
 
-with st.spinner("Loading recent challengers..."):
-    recent_challengers = fetch_recent_challengers(10)
+if not challengers:
+    st.warning("No challengers found")
+else:
+    # Turn into DataFrame
+    df = pd.DataFrame(challengers)
 
-    # Create DataFrame from the challengers data
-    challengers_df = pd.DataFrame(recent_challengers)
-    
+    # Format the join date
+    if "UserJoinDate" in df.columns:
+        df["Formatted_Join_Date"] = df["UserJoinDate"].apply(format_timestamp)
+
     # Format the latest payment date
-    if "latest_payment_date" in challengers_df.columns:
-        challengers_df["Formatted_Payment_Date"] = challengers_df["latest_payment_date"].apply(format_timestamp)
-    
+    if "latest_payment_date" in df.columns:
+        df["Formatted_Payment_Date"] = df["latest_payment_date"].apply(format_timestamp)
+
     # Format the payment amount
-    if "latest_payment_amount" in challengers_df.columns:
-        challengers_df["Payment_Amount_USD"] = challengers_df["latest_payment_amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
-    
-    # Format user join date
-    if "UserJoinDate" in challengers_df.columns:
-        challengers_df["Formatted_Join_Date"] = challengers_df["UserJoinDate"].apply(format_timestamp)
-    
-    # Display key challenger information
+    if "latest_payment_amount" in df.columns:
+        df["Payment_Amount_USD"] = df["latest_payment_amount"].apply(
+            lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00"
+        )
+
+    # Pick the columns you want to surface
     display_cols = [
-        "Formatted_Join_Date" , "UserName", "UserEmail", "UserCountry", "Platform", 
-        "Payment_Amount_USD", "currency", "latest_challenge_id", 
-        "Formatted_Payment_Date", "AmountWon", "UserStatus", "user_id"
+        "Formatted_Join_Date", "UserName", "UserEmail", "UserCountry", "Platform",
+        "Payment_Amount_USD", "currency", "latest_challenge_id",
+        "Formatted_Payment_Date", "UserStatus", "user_id"
     ]
-    display_cols = [col for col in display_cols if col in challengers_df.columns]
-    
-    st.dataframe(challengers_df[display_cols], use_container_width=True)
+    display_cols = [c for c in display_cols if c in df.columns]
+
+    st.dataframe(df[display_cols], use_container_width=True)
+
 st.divider()
 
 # --- USER PROFILE SEARCH SECTION ---
