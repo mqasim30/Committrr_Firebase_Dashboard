@@ -307,30 +307,34 @@ def fetch_latest_users(limit=10):
             logging.error(f"Fallback query for latest users failed: {fallback_error}")
             return []
 
+
 def fetch_recent_challengers(limit=10):
-    """Fetch recent challengers (users who made legitimate payments) with their profile data"""
+    """Fetch recent challengers (users who made legitimate payments in last 24 hours) with their profile data"""
     try:
-        # First, get recent completed payments to find paying users
+        # Calculate 24 hours ago timestamp
+        now = datetime.now()
+        twenty_four_hours_ago = now - timedelta(hours=24)
+        cutoff_timestamp = int(twenty_four_hours_ago.timestamp() * 1000)
+        
         ref = database.reference("payments")
         
-        # Get more payments to ensure we have enough unique users
-        query = ref.order_by_child("createdAt").limit_to_last(100)
-        payments_data = query.get()
+        # Use indexed query to get payments from last 24 hours only
+        query = ref.order_by_child("createdAt").start_at(cutoff_timestamp)
+        recent_payments = query.get()
         
-        if not payments_data:
-            logging.info("No payments found for challengers")
+        if not recent_payments:
+            logging.info("No payments found in last 24 hours for challengers")
             return []
         
         # Filter for completed payments and extract unique user IDs
-        completed_payments = []
         user_payment_map = {}  # Track latest payment per user
         
-        for payment_id, payment_data in payments_data.items():
+        for payment_id, payment_data in recent_payments.items():
             if isinstance(payment_data, dict) and payment_data.get("status") == "completed":
                 user_id = payment_data.get("userId")
                 created_at = payment_data.get("createdAt", 0)
                 
-                if user_id:
+                if user_id and created_at >= cutoff_timestamp:  # Double-check 24h filter
                     # Keep track of the latest payment per user
                     if user_id not in user_payment_map or created_at > user_payment_map[user_id]["createdAt"]:
                         user_payment_map[user_id] = {
@@ -371,7 +375,7 @@ def fetch_recent_challengers(limit=10):
             except Exception as e:
                 logging.error(f"Error fetching profile for user {user_id}: {e}")
         
-        logging.info(f"Found {len(challengers)} recent challengers")
+        logging.info(f"Found {len(challengers)} recent challengers in last 24 hours")
         return challengers
         
     except Exception as e:
