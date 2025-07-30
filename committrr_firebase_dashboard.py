@@ -434,6 +434,84 @@ else:
 
 st.divider()
 
+# --- RECENT CHALLENGERS SECTION ---
+st.header("🎯 Latest 10 Challengers (Paying Users)")
+
+with st.spinner("Loading recent challengers..."):
+    recent_challengers = fetch_recent_challengers(10)
+
+if not recent_challengers:
+    st.warning("No recent challengers found (users with completed payments)")
+else:
+    st.success(f"Found {len(recent_challengers)} recent challengers who made legitimate payments")
+    
+    # Create DataFrame from the challengers data
+    challengers_df = pd.DataFrame(recent_challengers)
+    
+    # Format the latest payment date
+    if "latest_payment_date" in challengers_df.columns:
+        challengers_df["Formatted_Payment_Date"] = challengers_df["latest_payment_date"].apply(format_timestamp)
+    
+    # Format the payment amount
+    if "latest_payment_amount" in challengers_df.columns:
+        challengers_df["Payment_Amount_USD"] = challengers_df["latest_payment_amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
+    
+    # Format user join date
+    if "UserJoinDate" in challengers_df.columns:
+        challengers_df["Formatted_Join_Date"] = challengers_df["UserJoinDate"].apply(format_timestamp)
+    
+    # Display key challenger information
+    display_cols = [
+        "user_id", "UserName", "UserEmail", "UserCountry", "Platform", 
+        "Payment_Amount_USD", "currency", "latest_challenge_id", 
+        "Formatted_Payment_Date", "AmountWon", "UserStatus", "Formatted_Join_Date"
+    ]
+    display_cols = [col for col in display_cols if col in challengers_df.columns]
+    
+    st.dataframe(challengers_df[display_cols], use_container_width=True)
+    
+    # Show challenger statistics
+    st.subheader("💰 Challenger Statistics")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_challengers = len(recent_challengers)
+        st.metric("Active Challengers", total_challengers)
+    
+    with col2:
+        total_spent = sum(c.get('latest_payment_amount', 0) for c in recent_challengers) / 100
+        st.metric("Total Spent", f"${total_spent:.2f}")
+    
+    with col3:
+        avg_payment = total_spent / total_challengers if total_challengers > 0 else 0
+        st.metric("Avg Payment", f"${avg_payment:.2f}")
+    
+    with col4:
+        total_winnings = sum(c.get('AmountWon', 0) for c in recent_challengers)
+        st.metric("Total Winnings", f"${total_winnings:.2f}")
+    
+    # Platform breakdown for challengers
+    if recent_challengers:
+        st.subheader("📱 Challenger Platform Breakdown")
+        platform_counts = {}
+        for challenger in recent_challengers:
+            platform = challenger.get('Platform', 'Unknown')
+            platform_counts[platform] = platform_counts.get(platform, 0) + 1
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            for platform, count in platform_counts.items():
+                percentage = (count / total_challengers) * 100
+                st.write(f"**{platform}:** {count} challengers ({percentage:.1f}%)")
+        
+        with col2:
+            if len(platform_counts) > 1:
+                st.bar_chart(platform_counts)
+
+st.divider()
+
 # --- USER PROFILE SEARCH SECTION ---
 st.header("🔍 User Profile Search")
 
