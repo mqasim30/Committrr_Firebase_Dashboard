@@ -251,6 +251,133 @@ def fetch_user_profile(user_id):
         logging.error(f"Error fetching user profile {user_id}: {e}")
         return None
 
+def fetch_latest_users(limit=10):
+    """Fetch latest users sorted by UserJoinDate using indexed query"""
+    try:
+        ref = database.reference("USER_PROFILES")
+        
+        # Use indexed query to get latest users by join date
+        query = ref.order_by_child("UserJoinDate").limit_to_last(limit)
+        users_data = query.get()
+        
+        if not users_data or not isinstance(users_data, dict):
+            logging.warning("No users data found")
+            return []
+        
+        # Convert to list with user IDs
+        users_list = []
+        for user_id, user_data in users_data.items():
+            if isinstance(user_data, dict):
+                user_record = {
+                    "user_id": user_id,
+                    **user_data
+                }
+                users_list.append(user_record)
+        
+        # Sort by UserJoinDate (most recent first)
+        sorted_users = sorted(
+            users_list,
+            key=lambda x: x.get("UserJoinDate", 0),
+            reverse=True
+        )
+        
+        logging.info(f"Found {len(sorted_users)} latest users using indexed query")
+        return sorted_users
+        
+    except Exception as e:
+        logging.error(f"Error fetching latest users with indexed query: {e}")
+        # Fallback to basic query if indexed query fails
+        try:
+            ref = database.reference("USER_PROFILES")
+            all_users = ref.get()
+            
+            if not all_users:
+                return []
+            
+            users_list = []
+            for user_id, user_data in all_users.items():
+                if isinstance(user_data, dict):
+                    user_record = {"user_id": user_id, **user_data}
+                    users_list.append(user_record)
+            
+            sorted_users = sorted(users_list, key=lambda x: x.get("UserJoinDate", 0), reverse=True)
+            return sorted_users[:limit]
+            
+        except Exception as fallback_error:
+            logging.error(f"Fallback query for latest users failed: {fallback_error}")
+            return []
+
+def fetch_recent_challengers(limit=10):
+    """Fetch recent challengers (users who made legitimate payments) with their profile data"""
+    try:
+        # First, get recent completed payments to find paying users
+        ref = database.reference("payments")
+        
+        # Get more payments to ensure we have enough unique users
+        query = ref.order_by_child("createdAt").limit_to_last(100)
+        payments_data = query.get()
+        
+        if not payments_data:
+            logging.info("No payments found for challengers")
+            return []
+        
+        # Filter for completed payments and extract unique user IDs
+        completed_payments = []
+        user_payment_map = {}  # Track latest payment per user
+        
+        for payment_id, payment_data in payments_data.items():
+            if isinstance(payment_data, dict) and payment_data.get("status") == "completed":
+                user_id = payment_data.get("userId")
+                created_at = payment_data.get("createdAt", 0)
+                
+                if user_id:
+                    # Keep track of the latest payment per user
+                    if user_id not in user_payment_map or created_at > user_payment_map[user_id]["createdAt"]:
+                        user_payment_map[user_id] = {
+                            "payment_id": payment_id,
+                            "createdAt": created_at,
+                            "amount": payment_data.get("amount", 0),
+                            "currency": payment_data.get("currency", "usd"),
+                            "challengeId": payment_data.get("challengeId", ""),
+                            **payment_data
+                        }
+        
+        # Sort users by their latest payment time
+        sorted_user_payments = sorted(
+            user_payment_map.items(),
+            key=lambda x: x[1]["createdAt"],
+            reverse=True
+        )
+        
+        # Get the top unique users and fetch their profiles
+        challengers = []
+        for user_id, payment_data in sorted_user_payments[:limit]:
+            # Fetch user profile
+            try:
+                user_profile = fetch_user_profile(user_id)
+                if user_profile:
+                    challenger_record = {
+                        "user_id": user_id,
+                        "payment_id": payment_data["payment_id"],
+                        "latest_payment_amount": payment_data["amount"],
+                        "latest_payment_date": payment_data["createdAt"],
+                        "latest_challenge_id": payment_data["challengeId"],
+                        "currency": payment_data["currency"],
+                        **user_profile  # Add all user profile data
+                    }
+                    challengers.append(challenger_record)
+                else:
+                    logging.warning(f"No profile found for user {user_id}")
+            except Exception as e:
+                logging.error(f"Error fetching profile for user {user_id}: {e}")
+        
+        logging.info(f"Found {len(challengers)} recent challengers")
+        return challengers
+        
+    except Exception as e:
+        logging.error(f"Error fetching recent challengers: {e}")
+        return []
+
 def calculate_payment_stats(payments):
     """Calculate basic statistics from payments data"""
     if not payments:
@@ -276,6 +403,36 @@ def calculate_payment_stats(payments):
 
 # --- STREAMLIT DASHBOARD ---
 st.title("Payments Dashboard")
+
+# Index setup warning
+st.info("📊 **Performance Note:** This dashboard uses indexed queries for efficient data retrieval. Make sure you've updated your Firebase rules with indexing configuration.")
+
+# --- LATEST USERS SECTION ---
+st.header("👥 Latest 10 Users")
+
+with st.spinner("Loading latest users..."):
+    latest_users = fetch_latest_users(10)
+
+if not latest_users:
+    st.warning("No users found")
+else:
+    # Create DataFrame from the latest users data
+    users_df = pd.DataFrame(latest_users)
+    
+    # Format the UserJoinDate to be more readable
+    if "UserJoinDate" in users_df.columns:
+        users_df["Formatted_Join_Date"] = users_df["UserJoinDate"].apply(format_timestamp)
+    
+    if "UserActiveDate" in users_df.columns:
+        users_df["Formatted_Active_Date"] = users_df["UserActiveDate"].apply(format_timestamp)
+    
+    # Display key information in a clean table
+    display_cols = ["user_id", "UserName", "UserEmail", "UserCountry", "Platform", "UserStatus", "UserSource", "AmountWon", "Formatted_Join_Date", "Formatted_Active_Date"]
+    display_cols = [col for col in display_cols if col in users_df.columns]
+    
+    st.dataframe(users_df[display_cols], use_container_width=True)
+
+st.divider()
 
 # --- USER PROFILE SEARCH SECTION ---
 st.header("🔍 User Profile Search")
@@ -356,7 +513,7 @@ if user_id_input:
 st.divider()
 
 # --- VALID PAYMENTS LAST 24 HOURS SECTION ---
-st.header("✅ Valid Payments (Last 24 Hours)")
+st.header("✅ Completed Payments (Last 24 Hours)")
 
 with st.spinner("Loading valid payments from last 24 hours..."):
     valid_payments_24h = fetch_valid_payments_24h()
@@ -398,3 +555,84 @@ else:
     st.dataframe(valid_df[display_cols], use_container_width=True)
 
 st.divider()
+
+# --- RECENT PAYMENTS SECTION ---
+st.header("💳 Recent Payments (All)")
+
+with st.spinner("Loading recent payments..."):
+    recent_payments = fetch_recent_payments(50)
+
+if not recent_payments:
+    st.warning("No payments found")
+else:
+    # Calculate and display stats
+    stats = calculate_payment_stats(recent_payments)
+    
+    if stats:
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Payments", stats.get('count', 0))
+        
+        with col2:
+            total_amount = stats.get('total_amount', 0)
+            st.metric("Total Amount", f"${total_amount/100:.2f}")
+        
+        with col3:
+            avg_amount = stats.get('average_amount', 0)
+            st.metric("Average Amount", f"${avg_amount/100:.2f}")
+        
+        with col4:
+            completed_count = stats.get('status_breakdown', {}).get('completed', 0)
+            st.metric("Completed", completed_count)
+    
+    # Create DataFrame for display
+    payments_df = pd.DataFrame(recent_payments)
+    
+    # Format timestamps
+    if "createdAt" in payments_df.columns:
+        payments_df["Formatted_Created"] = payments_df["createdAt"].apply(format_timestamp)
+    
+    # Format amount to dollars
+    if "amount" in payments_df.columns:
+        payments_df["Amount_USD"] = payments_df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
+    
+    # Display columns
+    display_cols = ["payment_id", "userId", "Amount_USD", "currency", "status", "challengeId", "Formatted_Created"]
+    display_cols = [col for col in display_cols if col in payments_df.columns]
+    
+    st.dataframe(payments_df[display_cols], use_container_width=True)
+
+st.divider()
+
+# --- STATUS BREAKDOWN SECTION ---
+if recent_payments:
+    st.header("📊 Payment Status Breakdown")
+    
+    status_df = pd.DataFrame(recent_payments)
+    if 'status' in status_df.columns:
+        status_counts = status_df['status'].value_counts()
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.subheader("Status Counts")
+            for status, count in status_counts.items():
+                percentage = (count / len(recent_payments)) * 100
+                if status == 'completed':
+                    st.success(f"✅ **{status.title()}:** {count} ({percentage:.1f}%)")
+                elif status == 'canceled':
+                    st.error(f"❌ **{status.title()}:** {count} ({percentage:.1f}%)")
+                else:
+                    st.info(f"ℹ️ **{status.title()}:** {count} ({percentage:.1f}%)")
+        
+        with col2:
+            st.subheader("Status Chart")
+            st.bar_chart(status_counts)
+
+# --- REFRESH BUTTON ---
+st.divider()
+if st.button("🔄 Refresh Data", type="primary"):
+    st.rerun()
+
+st.caption("Dashboard uses indexed Firebase queries for efficient data retrieval. Make sure Firebase rules are updated with indexing configuration.")
