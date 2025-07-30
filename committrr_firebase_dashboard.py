@@ -308,32 +308,29 @@ def fetch_latest_users(limit=10):
             return []
 
 def fetch_recent_challengers(limit=10):
-    """Fetch recent challengers (users who made legitimate payments in last 24 hours) with their profile data"""
+    """Fetch recent challengers (users who made legitimate payments) with their profile data"""
     try:
-        # Calculate 24 hours ago timestamp
-        now = datetime.now()
-        twenty_four_hours_ago = now - timedelta(hours=24)
-        cutoff_timestamp = int(twenty_four_hours_ago.timestamp() * 1000)
-        
+        # First, get recent completed payments to find paying users
         ref = database.reference("payments")
         
-        # Use indexed query to get payments from last 24 hours only
-        query = ref.order_by_child("createdAt").start_at(cutoff_timestamp)
-        recent_payments = query.get()
+        # Get more payments to ensure we have enough unique users
+        query = ref.order_by_child("createdAt").limit_to_last(100)
+        payments_data = query.get()
         
-        if not recent_payments:
-            logging.info("No payments found in last 24 hours for challengers")
+        if not payments_data:
+            logging.info("No payments found for challengers")
             return []
         
         # Filter for completed payments and extract unique user IDs
+        completed_payments = []
         user_payment_map = {}  # Track latest payment per user
         
-        for payment_id, payment_data in recent_payments.items():
+        for payment_id, payment_data in payments_data.items():
             if isinstance(payment_data, dict) and payment_data.get("status") == "completed":
                 user_id = payment_data.get("userId")
                 created_at = payment_data.get("createdAt", 0)
                 
-                if user_id and created_at >= cutoff_timestamp:  # Double-check 24h filter
+                if user_id:
                     # Keep track of the latest payment per user
                     if user_id not in user_payment_map or created_at > user_payment_map[user_id]["createdAt"]:
                         user_payment_map[user_id] = {
@@ -374,13 +371,12 @@ def fetch_recent_challengers(limit=10):
             except Exception as e:
                 logging.error(f"Error fetching profile for user {user_id}: {e}")
         
-        logging.info(f"Found {len(challengers)} recent challengers in last 24 hours")
+        logging.info(f"Found {len(challengers)} recent challengers")
         return challengers
         
     except Exception as e:
         logging.error(f"Error fetching recent challengers: {e}")
         return []
-
 
 def calculate_payment_stats(payments):
     """Calculate basic statistics from payments data"""
@@ -467,6 +463,84 @@ with st.spinner("Loading recent challengers..."):
     st.dataframe(challengers_df[display_cols], use_container_width=True)
 st.divider()
 
+# --- USER PROFILE SEARCH SECTION ---
+st.header("🔍 User Profile Search")
+
+user_id_input = st.text_input("Enter User ID to search:", placeholder="Enter UID here...")
+
+if user_id_input:
+    with st.spinner(f"Searching for user {user_id_input}..."):
+        user_profile = fetch_user_profile(user_id_input.strip())
+    
+    if user_profile:
+        st.success(f"User profile found for {user_id_input}")
+        
+        # Display user profile in a clean format
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Basic Info")
+            st.write(f"**Name:** {user_profile.get('UserName', 'N/A')}")
+            st.write(f"**Email:** {user_profile.get('UserEmail', 'N/A')}")
+            st.write(f"**Country:** {user_profile.get('UserCountry', 'N/A')}")
+            st.write(f"**Platform:** {user_profile.get('Platform', 'N/A')}")
+            st.write(f"**Status:** {user_profile.get('UserStatus', 'N/A')}")
+        
+        with col2:
+            st.subheader("Activity & Stats")
+            st.write(f"**Amount Won:** ${user_profile.get('AmountWon', 0)}")
+            st.write(f"**Join Date:** {format_timestamp(user_profile.get('UserJoinDate', 0))}")
+            st.write(f"**Last Active:** {format_timestamp(user_profile.get('UserActiveDate', 0))}")
+            st.write(f"**Source:** {user_profile.get('UserSource', 'N/A')}")
+            st.write(f"**IP:** {user_profile.get('UserIP', 'N/A')}")
+        
+        # Fetch and display user's payment history
+        st.subheader("💳 Payment History")
+        with st.spinner(f"Loading payment history for {user_id_input}..."):
+            user_payments = fetch_user_payments(user_id_input.strip(), 20)
+        
+        if user_payments:
+            # Calculate user payment stats
+            user_payment_stats = calculate_payment_stats(user_payments)
+            
+            # Display user payment metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Payments", user_payment_stats.get('count', 0))
+            with col2:
+                total_spent = user_payment_stats.get('total_amount', 0)
+                st.metric("Total Spent", f"${total_spent/100:.2f}")
+            with col3:
+                avg_payment = user_payment_stats.get('average_amount', 0)
+                st.metric("Avg Payment", f"${avg_payment/100:.2f}")
+            with col4:
+                completed_payments = user_payment_stats.get('status_breakdown', {}).get('completed', 0)
+                st.metric("Completed", completed_payments)
+            
+            # Display user payments table
+            user_payments_df = pd.DataFrame(user_payments)
+            
+            if "createdAt" in user_payments_df.columns:
+                user_payments_df["Formatted_Created"] = user_payments_df["createdAt"].apply(format_timestamp)
+            
+            if "amount" in user_payments_df.columns:
+                user_payments_df["Amount_USD"] = user_payments_df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
+            
+            display_cols = ["payment_id", "Amount_USD", "currency", "status", "challengeId", "Formatted_Created"]
+            display_cols = [col for col in display_cols if col in user_payments_df.columns]
+            
+            st.dataframe(user_payments_df[display_cols], use_container_width=True)
+        else:
+            st.info("No payment history found for this user.")
+        
+        # Show raw data in expandable section
+        with st.expander("View Raw Profile Data"):
+            st.json(user_profile)
+    else:
+        st.error(f"No user profile found for UID: {user_id_input}")
+
+st.divider()
+
 # --- VALID PAYMENTS LAST 24 HOURS SECTION ---
 st.header("Payments (Last 24 Hours)")
 
@@ -510,4 +584,3 @@ else:
     st.dataframe(valid_df[display_cols], use_container_width=True)
 
 st.divider()
-
