@@ -463,6 +463,51 @@ with st.spinner("Loading recent challengers..."):
     st.dataframe(challengers_df[display_cols], use_container_width=True)
 st.divider()
 
+# --- VALID PAYMENTS LAST 24 HOURS SECTION ---
+st.header("Payments (Last 24 Hours)")
+
+with st.spinner("Loading valid payments from last 24 hours..."):
+    valid_payments_24h = fetch_valid_payments_24h()
+
+if not valid_payments_24h:
+    st.warning("No valid payments found in the last 24 hours")
+else:
+    # Calculate stats for valid payments
+    valid_stats = calculate_payment_stats(valid_payments_24h)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Valid Payments (24h)", valid_stats.get('count', 0))
+    
+    with col2:
+        total_valid = valid_stats.get('total_amount', 0)
+        st.metric("Total Revenue (24h)", f"${total_valid/100:.2f}")
+    
+    with col3:
+        avg_valid = valid_stats.get('average_amount', 0)
+        st.metric("Average Payment (24h)", f"${avg_valid/100:.2f}")
+    
+    # Create DataFrame for valid payments
+    valid_df = pd.DataFrame(valid_payments_24h)
+    
+    # Format timestamps
+    if "createdAt" in valid_df.columns:
+        valid_df["Formatted_Created"] = valid_df["createdAt"].apply(format_timestamp)
+    
+    # Format amount to dollars
+    if "amount" in valid_df.columns:
+        valid_df["Amount_USD"] = valid_df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
+    
+    # Display columns for valid payments
+    display_cols = ["payment_id", "userId", "Amount_USD", "currency", "status", "challengeId", "Formatted_Created"]
+    display_cols = [col for col in display_cols if col in valid_df.columns]
+    
+    st.dataframe(valid_df[display_cols], use_container_width=True)
+
+st.divider()
+
+
 # --- USER PROFILE SEARCH SECTION ---
 st.header("🔍 User Profile Search")
 
@@ -538,49 +583,5 @@ if user_id_input:
             st.json(user_profile)
     else:
         st.error(f"No user profile found for UID: {user_id_input}")
-
-st.divider()
-
-# --- VALID PAYMENTS LAST 24 HOURS SECTION ---
-st.header("Payments (Last 24 Hours)")
-
-with st.spinner("Loading valid payments from last 24 hours..."):
-    valid_payments_24h = fetch_valid_payments_24h()
-
-if not valid_payments_24h:
-    st.warning("No valid payments found in the last 24 hours")
-else:
-    # Calculate stats for valid payments
-    valid_stats = calculate_payment_stats(valid_payments_24h)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Valid Payments (24h)", valid_stats.get('count', 0))
-    
-    with col2:
-        total_valid = valid_stats.get('total_amount', 0)
-        st.metric("Total Revenue (24h)", f"${total_valid/100:.2f}")
-    
-    with col3:
-        avg_valid = valid_stats.get('average_amount', 0)
-        st.metric("Average Payment (24h)", f"${avg_valid/100:.2f}")
-    
-    # Create DataFrame for valid payments
-    valid_df = pd.DataFrame(valid_payments_24h)
-    
-    # Format timestamps
-    if "createdAt" in valid_df.columns:
-        valid_df["Formatted_Created"] = valid_df["createdAt"].apply(format_timestamp)
-    
-    # Format amount to dollars
-    if "amount" in valid_df.columns:
-        valid_df["Amount_USD"] = valid_df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
-    
-    # Display columns for valid payments
-    display_cols = ["payment_id", "userId", "Amount_USD", "currency", "status", "challengeId", "Formatted_Created"]
-    display_cols = [col for col in display_cols if col in valid_df.columns]
-    
-    st.dataframe(valid_df[display_cols], use_container_width=True)
 
 st.divider()
