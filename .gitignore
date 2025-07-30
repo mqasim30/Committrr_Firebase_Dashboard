@@ -1,0 +1,6 @@
+# Ignore the Firebase service account key file
+challenge-app-7-firebase-adminsdk-8tobc-a38b3ba154.json
+
+# Optionally ignore environment files if used for secrets
+.env
+test.py

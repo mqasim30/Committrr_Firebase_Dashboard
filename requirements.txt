@@ -1,0 +1,6 @@
+streamlit
+firebase-admin
+python-dotenv
+pandas
+ipaddress
+streamlit-autorefresh
