@@ -80,127 +80,31 @@ def format_timestamp(timestamp):
             return "Invalid date"
     return "Not available"
 
-def fetch_recent_payments(limit=50):
-    """Fetch recent payments sorted by createdAt timestamp using indexed query"""
+def fetch_recent_completed_payments(limit=20):
+    """Fetch the most recent `limit` payments whose status == 'completed'."""
     try:
         ref = database.reference("payments")
-        
-        # Use indexed query to efficiently get recent payments
-        query = ref.order_by_child("createdAt").limit_to_last(limit)
-        payments_data = query.get()
-        
-        if not payments_data or not isinstance(payments_data, dict):
-            logging.warning("No payments data found")
-            return []
-        
-        # Convert to list with payment IDs
-        payments_list = []
-        for payment_id, payment_data in payments_data.items():
-            if isinstance(payment_data, dict):
-                payment_record = {
-                    "payment_id": payment_id,
-                    **payment_data
-                }
-                payments_list.append(payment_record)
-        
-        # Sort by createdAt timestamp (most recent first) - data comes in ascending order
-        sorted_payments = sorted(
-            payments_list,
-            key=lambda x: x.get("createdAt", 0),
-            reverse=True
-        )
-        
-        logging.info(f"Found {len(sorted_payments)} recent payments using indexed query")
-        return sorted_payments
-        
-    except Exception as e:
-        logging.error(f"Error fetching payments with indexed query: {e}")
-        # Fallback to basic query if indexed query fails
-        try:
-            ref = database.reference("payments")
-            all_payments = ref.get()
-            
-            if not all_payments:
-                return []
-            
-            payments_list = []
-            for payment_id, payment_data in all_payments.items():
-                if isinstance(payment_data, dict):
-                    payment_record = {"payment_id": payment_id, **payment_data}
-                    payments_list.append(payment_record)
-            
-            sorted_payments = sorted(payments_list, key=lambda x: x.get("createdAt", 0), reverse=True)
-            return sorted_payments[:limit]
-            
-        except Exception as fallback_error:
-            logging.error(f"Fallback query also failed: {fallback_error}")
+        # This uses your indexed `status` field to only pull completed payments
+        query = ref.order_by_child("status").equal_to("completed")
+        completed_data = query.get()
+
+        if not completed_data or not isinstance(completed_data, dict):
+            logging.info("No completed payments found")
             return []
 
-def fetch_valid_payments_24h():
-    """Fetch valid payments from the last 24 hours using indexed queries"""
-    try:
-        # Calculate 24 hours ago timestamp
-        now = datetime.now()
-        twenty_four_hours_ago = now - timedelta(hours=24)
-        cutoff_timestamp = int(twenty_four_hours_ago.timestamp() * 1000)
-        
-        ref = database.reference("payments")
-        
-        # Use indexed query to get payments from last 24 hours
-        # First get payments by timestamp, then filter by status
-        query = ref.order_by_child("createdAt").start_at(cutoff_timestamp)
-        recent_payments = query.get()
-        
-        if not recent_payments:
-            logging.info("No payments found in last 24 hours using indexed query")
-            return []
-        
-        valid_payments = []
-        for payment_id, payment_data in recent_payments.items():
-            if isinstance(payment_data, dict):
-                # Check if payment is completed
-                if payment_data.get("status") == "completed":
-                    payment_record = {
-                        "payment_id": payment_id,
-                        **payment_data
-                    }
-                    valid_payments.append(payment_record)
-        
-        # Sort by createdAt (most recent first)
-        valid_payments.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
-        
-        logging.info(f"Found {len(valid_payments)} valid payments in last 24 hours using indexed query")
-        return valid_payments
-        
+        # Turn into list and sort by createdAt descending
+        payments = [
+            {"payment_id": pid, **pdata}
+            for pid, pdata in completed_data.items()
+            if isinstance(pdata, dict)
+        ]
+        payments.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
+
+        return payments[:limit]
+
     except Exception as e:
-        logging.error(f"Error fetching 24h valid payments with indexed query: {e}")
-        # Fallback to non-indexed query
-        try:
-            ref = database.reference("payments")
-            all_payments = ref.get()
-            
-            if not all_payments:
-                return []
-            
-            now = datetime.now()
-            twenty_four_hours_ago = now - timedelta(hours=24)
-            cutoff_timestamp = int(twenty_four_hours_ago.timestamp() * 1000)
-            
-            valid_payments = []
-            for payment_id, payment_data in all_payments.items():
-                if isinstance(payment_data, dict):
-                    if (payment_data.get("status") == "completed" and 
-                        payment_data.get("createdAt", 0) >= cutoff_timestamp):
-                        
-                        payment_record = {"payment_id": payment_id, **payment_data}
-                        valid_payments.append(payment_record)
-            
-            valid_payments.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
-            return valid_payments
-            
-        except Exception as fallback_error:
-            logging.error(f"Fallback query for 24h payments failed: {fallback_error}")
-            return []
+        logging.error(f"Error fetching completed payments: {e}")
+        return []
 
 def fetch_user_payments(user_id, limit=20):
     """Fetch payments for a specific user using indexed query"""
@@ -472,6 +376,45 @@ else:
 
 st.divider()
 
+# --- LATEST 20 COMPLETED PAYMENTS SECTION ---
+st.header("💸 Latest 20 Completed Payments")
+
+with st.spinner("Loading latest completed payments..."):
+    completed_payments = fetch_recent_completed_payments(limit=20)
+
+if not completed_payments:
+    st.warning("No completed payments found")
+else:
+    stats = calculate_payment_stats(completed_payments)
+
+    # Summary metrics
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Total Payments", stats.get("count", 0))
+    with c2:
+        tot = stats.get("total_amount", 0)
+        st.metric("Total Revenue", f"${tot/100:.2f}")
+    with c3:
+        avg = stats.get("average_amount", 0)
+        st.metric("Average Payment", f"${avg/100:.2f}")
+
+    # Build and display DataFrame
+    df = pd.DataFrame(completed_payments)
+    if "createdAt" in df.columns:
+        df["Formatted_Created"] = df["createdAt"].apply(format_timestamp)
+    if "amount" in df.columns:
+        df["Amount_USD"] = df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
+
+    display_cols = [
+        "Formatted_Created", "userId", "Amount_USD",
+        "currency", "status", "challengeId", "payment_id"
+    ]
+    display_cols = [c for c in display_cols if c in df.columns]
+
+    st.dataframe(df[display_cols], use_container_width=True)
+
+st.divider()
+
 # --- USER PROFILE SEARCH SECTION ---
 st.header("🔍 User Profile Search")
 
@@ -548,44 +491,5 @@ if user_id_input:
     else:
         st.error(f"No user profile found for UID: {user_id_input}")
 
-st.divider()
-
-# --- LATEST 20 PAYMENTS SECTION ---
-st.header("💸 Latest 20 Payments")
-
-with st.spinner("Loading latest 20 payments..."):
-    recent_payments = fetch_recent_payments(limit=20)
-
-if not recent_payments:
-    st.warning("No payments found")
-else:
-    # Calculate stats for these 20 payments
-    stats = calculate_payment_stats(recent_payments)
-
-    # Show summary metrics
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Payments", stats.get('count', 0))
-    with col2:
-        total_amt = stats.get('total_amount', 0)
-        st.metric("Total Revenue", f"${total_amt/100:.2f}")
-    with col3:
-        avg_amt = stats.get('average_amount', 0)
-        st.metric("Average Payment", f"${avg_amt/100:.2f}")
-
-    # Build and display the DataFrame
-    df = pd.DataFrame(recent_payments)
-    if "createdAt" in df.columns:
-        df["Formatted_Created"] = df["createdAt"].apply(format_timestamp)
-    if "amount" in df.columns:
-        df["Amount_USD"] = df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
-
-    display_cols = [
-        "Formatted_Created", "userId", "Amount_USD", 
-        "currency", "status", "challengeId", "payment_id"
-    ]
-    display_cols = [c for c in display_cols if c in df.columns]
-
-    st.dataframe(df[display_cols], use_container_width=True)
 
 st.divider()
