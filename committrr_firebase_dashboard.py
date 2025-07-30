@@ -22,7 +22,7 @@ if not firebase_cert_source or not firebase_db_url:
     st.error("Firebase configuration is missing. Set FIREBASE_CERT_JSON (as dict) and FIREBASE_DB_URL in your secrets.")
     st.stop()
 
-# Convert to a regular dict if it's not one already
+# Convert to a regular dict if it's not one already 
 if not isinstance(firebase_cert_source, dict):
     try:
         firebase_cert_source = dict(firebase_cert_source)
@@ -277,9 +277,6 @@ def calculate_payment_stats(payments):
 # --- STREAMLIT DASHBOARD ---
 st.title("Payments Dashboard")
 
-# Index setup warning
-st.info("📊 **Performance Note:** This dashboard uses indexed queries for efficient data retrieval. Make sure you've updated your Firebase rules with the provided indexing configuration to avoid hitting Firebase limits.")
-
 # --- USER PROFILE SEARCH SECTION ---
 st.header("🔍 User Profile Search")
 
@@ -358,55 +355,6 @@ if user_id_input:
 
 st.divider()
 
-# --- RECENT PAYMENTS SECTION ---
-st.header("💳 Recent Payments (All)")
-
-with st.spinner("Loading recent payments..."):
-    recent_payments = fetch_recent_payments(50)
-
-if not recent_payments:
-    st.warning("No payments found")
-else:
-    # Calculate and display stats
-    stats = calculate_payment_stats(recent_payments)
-    
-    if stats:
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Payments", stats.get('count', 0))
-        
-        with col2:
-            total_amount = stats.get('total_amount', 0)
-            st.metric("Total Amount", f"${total_amount/100:.2f}")  # Assuming amount is in cents
-        
-        with col3:
-            avg_amount = stats.get('average_amount', 0)
-            st.metric("Average Amount", f"${avg_amount/100:.2f}")
-        
-        with col4:
-            completed_count = stats.get('status_breakdown', {}).get('completed', 0)
-            st.metric("Completed", completed_count)
-    
-    # Create DataFrame for display
-    payments_df = pd.DataFrame(recent_payments)
-    
-    # Format timestamps
-    if "createdAt" in payments_df.columns:
-        payments_df["Formatted_Created"] = payments_df["createdAt"].apply(format_timestamp)
-    
-    # Format amount to dollars
-    if "amount" in payments_df.columns:
-        payments_df["Amount_USD"] = payments_df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
-    
-    # Display columns
-    display_cols = ["payment_id", "userId", "Amount_USD", "currency", "status", "challengeId", "Formatted_Created"]
-    display_cols = [col for col in display_cols if col in payments_df.columns]
-    
-    st.dataframe(payments_df[display_cols], use_container_width=True)
-
-st.divider()
-
 # --- VALID PAYMENTS LAST 24 HOURS SECTION ---
 st.header("✅ Valid Payments (Last 24 Hours)")
 
@@ -450,72 +398,3 @@ else:
     st.dataframe(valid_df[display_cols], use_container_width=True)
 
 st.divider()
-
-# --- ANALYTICS SECTION ---
-st.header("📈 Payment Analytics")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Filter by Status")
-    if recent_payments:
-        status_filter = st.selectbox(
-            "Select payment status:",
-            options=["All"] + list(set([p.get('status', 'unknown') for p in recent_payments])),
-            index=0
-        )
-        
-        if status_filter != "All":
-            filtered_payments = [p for p in recent_payments if p.get('status') == status_filter]
-            if filtered_payments:
-                filtered_stats = calculate_payment_stats(filtered_payments)
-                st.metric(f"{status_filter.title()} Payments", filtered_stats.get('count', 0))
-                st.metric(f"Total Amount ({status_filter})", f"${filtered_stats.get('total_amount', 0)/100:.2f}")
-            else:
-                st.info(f"No payments found with status: {status_filter}")
-
-with col2:
-    st.subheader("Filter by Currency")
-    if recent_payments:
-        currency_filter = st.selectbox(
-            "Select currency:",
-            options=["All"] + list(set([p.get('currency', 'unknown') for p in recent_payments])),
-            index=0
-        )
-        
-        if currency_filter != "All":
-            currency_payments = [p for p in recent_payments if p.get('currency') == currency_filter]
-            if currency_payments:
-                currency_stats = calculate_payment_stats(currency_payments)
-                st.metric(f"{currency_filter.upper()} Payments", currency_stats.get('count', 0))
-                st.metric(f"Total Amount ({currency_filter.upper()})", f"${currency_stats.get('total_amount', 0)/100:.2f}")
-            else:
-                st.info(f"No payments found with currency: {currency_filter}")
-
-st.divider()
-
-# --- STATUS BREAKDOWN SECTION ---
-if recent_payments:
-    st.header("📊 Payment Status Breakdown")
-    
-    status_df = pd.DataFrame(recent_payments)
-    if 'status' in status_df.columns:
-        status_counts = status_df['status'].value_counts()
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.subheader("Status Counts")
-            for status, count in status_counts.items():
-                st.write(f"**{status.title()}:** {count}")
-        
-        with col2:
-            st.subheader("Status Chart")
-            st.bar_chart(status_counts)
-
-# --- REFRESH BUTTON ---
-st.divider()
-if st.button("🔄 Refresh Data", type="primary"):
-    st.rerun()
-
-st.caption("Dashboard uses indexed Firebase queries for efficient data retrieval. Make sure Firebase rules are updated with indexing configuration. Use refresh button to force update data.")
