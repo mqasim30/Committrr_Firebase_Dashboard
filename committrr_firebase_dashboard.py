@@ -92,13 +92,13 @@ def fetch_recent_completed_payments(limit=20):
             logging.info("No completed payments found")
             return []
 
-        # Turn into list and sort by createdAt descending
+        # Turn into list and sort by processedAt descending
         payments = [
             {"payment_id": pid, **pdata}
             for pid, pdata in completed_data.items()
             if isinstance(pdata, dict)
         ]
-        payments.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
+        payments.sort(key=lambda x: x.get("processedAt", 0), reverse=True)
 
         return payments[:limit]
 
@@ -128,8 +128,8 @@ def fetch_user_payments(user_id, limit=20):
                 }
                 payments_list.append(payment_record)
         
-        # Sort by createdAt (most recent first)
-        payments_list.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
+        # Sort by processedAt (most recent first)
+        payments_list.sort(key=lambda x: x.get("processedAt", 0), reverse=True)
         
         logging.info(f"Found {len(payments_list)} payments for user {user_id}")
         return payments_list
@@ -241,17 +241,17 @@ def fetch_recent_challengers(limit=10):
             
             if isinstance(payment_data, dict):
                 user_id = payment_data.get("userId")
-                created_at = payment_data.get("createdAt", 0)
+                created_at = payment_data.get("processedAt", 0)
                 status = payment_data.get("status")
                 
-                logging.info(f"Payment {payment_id} - userId: {user_id}, status: {status}, createdAt: {created_at}")
+                logging.info(f"Payment {payment_id} - userId: {user_id}, status: {status}, processedAt: {created_at}")
                 
-                if user_id:  # Remove createdAt > 0 requirement for now
+                if user_id:  # Remove processedAt > 0 requirement for now
                     # Keep track of the latest payment per user
-                    if user_id not in user_payment_map or created_at > user_payment_map[user_id]["createdAt"]:
+                    if user_id not in user_payment_map or created_at > user_payment_map[user_id]["processedAt"]:
                         user_payment_map[user_id] = {
                             "payment_id": payment_id,
-                            "createdAt": created_at,
+                            "processedAt": created_at,
                             "amount": payment_data.get("amount", 0),
                             "currency": payment_data.get("currency", "usd"),
                             "challengeId": payment_data.get("challengeId", ""),
@@ -264,7 +264,7 @@ def fetch_recent_challengers(limit=10):
         # Sort users by their latest payment time
         sorted_user_payments = sorted(
             user_payment_map.items(),
-            key=lambda x: x[1]["createdAt"],
+            key=lambda x: x[1]["processedAt"],
             reverse=True
         )
         
@@ -280,7 +280,7 @@ def fetch_recent_challengers(limit=10):
                         "user_id": user_id,
                         "payment_id": payment_data["payment_id"],
                         "latest_payment_amount": payment_data["amount"],
-                        "latest_payment_date": payment_data["createdAt"],
+                        "latest_payment_date": payment_data["processedAt"],
                         "latest_challenge_id": payment_data["challengeId"],
                         "currency": payment_data["currency"],
                         **user_profile  # Add all user profile data
@@ -413,8 +413,8 @@ else:
 
     # Build and display DataFrame
     df = pd.DataFrame(completed_payments)
-    if "createdAt" in df.columns:
-        df["Formatted_Created"] = df["createdAt"].apply(format_timestamp)
+    if "processedAt" in df.columns:
+        df["Formatted_Created"] = df["processedAt"].apply(format_timestamp)
     if "amount" in df.columns:
         df["Amount_USD"] = df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
 
@@ -485,8 +485,8 @@ if user_id_input:
             # Display user payments table
             user_payments_df = pd.DataFrame(user_payments)
             
-            if "createdAt" in user_payments_df.columns:
-                user_payments_df["Formatted_Created"] = user_payments_df["createdAt"].apply(format_timestamp)
+            if "processedAt" in user_payments_df.columns:
+                user_payments_df["Formatted_Created"] = user_payments_df["processedAt"].apply(format_timestamp)
             
             if "amount" in user_payments_df.columns:
                 user_payments_df["Amount_USD"] = user_payments_df["amount"].apply(lambda x: f"${x/100:.2f}" if pd.notna(x) else "$0.00")
