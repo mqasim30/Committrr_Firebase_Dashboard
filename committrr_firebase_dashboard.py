@@ -81,10 +81,11 @@ def format_timestamp(timestamp):
     return "Not available"
 
 def fetch_recent_completed_payments(limit=20):
-    """Fetch the most recent `limit` payments whose status == 'completed'."""
+    """Fetch the most recent completed payments using indexed query"""
     try:
         ref = database.reference("payments")
-        # This uses your indexed `status` field to only pull completed payments
+        
+        # Use indexed query on 'status' to get only completed payments
         query = ref.order_by_child("status").equal_to("completed")
         completed_data = query.get()
 
@@ -92,14 +93,20 @@ def fetch_recent_completed_payments(limit=20):
             logging.info("No completed payments found")
             return []
 
-        # Turn into list and sort by createdAt descending
-        payments = [
-            {"payment_id": pid, **pdata}
-            for pid, pdata in completed_data.items()
-            if isinstance(pdata, dict)
-        ]
+        # Convert to list with payment IDs
+        payments = []
+        for payment_id, payment_data in completed_data.items():
+            if isinstance(payment_data, dict):
+                payment_record = {
+                    "payment_id": payment_id,
+                    **payment_data
+                }
+                payments.append(payment_record)
+
+        # Sort by createdAt descending (most recent first)
         payments.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
 
+        logging.info(f"Found {len(payments[:limit])} recent completed payments")
         return payments[:limit]
 
     except Exception as e:
@@ -111,8 +118,8 @@ def fetch_user_payments(user_id, limit=20):
     try:
         ref = database.reference("payments")
         
-        # Use indexed query to get payments for specific user
-        query = ref.order_by_child("userId").equal_to(user_id).limit_to_last(limit)
+        # Use indexed query on 'userId' to get payments for specific user
+        query = ref.order_by_child("userId").equal_to(user_id)
         user_payments = query.get()
         
         if not user_payments:
@@ -131,8 +138,8 @@ def fetch_user_payments(user_id, limit=20):
         # Sort by createdAt (most recent first)
         payments_list.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
         
-        logging.info(f"Found {len(payments_list)} payments for user {user_id}")
-        return payments_list
+        logging.info(f"Found {len(payments_list[:limit])} payments for user {user_id}")
+        return payments_list[:limit]
         
     except Exception as e:
         logging.error(f"Error fetching payments for user {user_id}: {e}")
@@ -160,8 +167,9 @@ def fetch_latest_users(limit=10):
     try:
         ref = database.reference("USER_PROFILES")
         
-        # Use indexed query to get latest users by join date
-        query = ref.order_by_child("UserJoinDate").limit_to_last(limit)
+        # Use indexed query to get users ordered by UserJoinDate
+        # Get more than needed since limit_to_last might not give exact results
+        query = ref.order_by_child("UserJoinDate").limit_to_last(limit * 2)
         users_data = query.get()
         
         if not users_data or not isinstance(users_data, dict):
@@ -171,7 +179,7 @@ def fetch_latest_users(limit=10):
         # Convert to list with user IDs
         users_list = []
         for user_id, user_data in users_data.items():
-            if isinstance(user_data, dict):
+            if isinstance(user_data, dict) and user_data.get("UserJoinDate"):
                 user_record = {
                     "user_id": user_id,
                     **user_data
@@ -185,61 +193,36 @@ def fetch_latest_users(limit=10):
             reverse=True
         )
         
-        logging.info(f"Found {len(sorted_users)} latest users using indexed query")
-        return sorted_users
+        logging.info(f"Found {len(sorted_users[:limit])} latest users")
+        return sorted_users[:limit]
         
     except Exception as e:
-        logging.error(f"Error fetching latest users with indexed query: {e}")
-        # Fallback to basic query if indexed query fails
-        try:
-            ref = database.reference("USER_PROFILES")
-            all_users = ref.get()
-            
-            if not all_users:
-                return []
-            
-            users_list = []
-            for user_id, user_data in all_users.items():
-                if isinstance(user_data, dict):
-                    user_record = {"user_id": user_id, **user_data}
-                    users_list.append(user_record)
-            
-            sorted_users = sorted(users_list, key=lambda x: x.get("UserJoinDate", 0), reverse=True)
-            return sorted_users[:limit]
-            
-        except Exception as fallback_error:
-            logging.error(f"Fallback query for latest users failed: {fallback_error}")
-            return []
+        logging.error(f"Error fetching latest users: {e}")
+        return []
 
-
-def fetch_recent_challengers(limit=10):
-    """Fetch recent challengers (users who made legitimate payments in last 24 hours) with their profile data"""
+def fetch_recent_challengers(limit=20):
+    """Fetch recent challengers (users with completed payments) - no time constraints"""
     try:
-        # Calculate 24 hours ago timestamp
-        now = datetime.now()
-        twenty_four_hours_ago = now - timedelta(hours=24)
-        cutoff_timestamp = int(twenty_four_hours_ago.timestamp() * 1000)
-        
         ref = database.reference("payments")
         
-        # Use indexed query to get payments from last 24 hours only
-        query = ref.order_by_child("createdAt").start_at(cutoff_timestamp)
-        recent_payments = query.get()
+        # Use indexed query to get all completed payments efficiently
+        query = ref.order_by_child("status").equal_to("completed")
+        completed_payments = query.get()
         
-        if not recent_payments:
-            logging.info("No payments found in last 24 hours for challengers")
+        if not completed_payments or not isinstance(completed_payments, dict):
+            logging.info("No completed payments found")
             return []
         
-        # Filter for completed payments and extract unique user IDs
-        user_payment_map = {}  # Track latest payment per user
+        # Track latest payment per user
+        user_payment_map = {}
         
-        for payment_id, payment_data in recent_payments.items():
-            if isinstance(payment_data, dict) and payment_data.get("status") == "completed":
+        for payment_id, payment_data in completed_payments.items():
+            if isinstance(payment_data, dict):
                 user_id = payment_data.get("userId")
                 created_at = payment_data.get("createdAt", 0)
                 
-                if user_id and created_at >= cutoff_timestamp:  # Double-check 24h filter
-                    # Keep track of the latest payment per user
+                if user_id and created_at > 0:
+                    # Keep only the latest payment per user
                     if user_id not in user_payment_map or created_at > user_payment_map[user_id]["createdAt"]:
                         user_payment_map[user_id] = {
                             "payment_id": payment_id,
@@ -250,17 +233,18 @@ def fetch_recent_challengers(limit=10):
                             **payment_data
                         }
         
-        # Sort users by their latest payment time
+        logging.info(f"Found {len(user_payment_map)} unique users with completed payments")
+        
+        # Sort users by their latest payment timestamp (most recent first)
         sorted_user_payments = sorted(
             user_payment_map.items(),
             key=lambda x: x[1]["createdAt"],
             reverse=True
         )
         
-        # Get the top unique users and fetch their profiles
+        # Fetch user profiles for the top users
         challengers = []
         for user_id, payment_data in sorted_user_payments[:limit]:
-            # Fetch user profile
             try:
                 user_profile = fetch_user_profile(user_id)
                 if user_profile:
@@ -274,22 +258,29 @@ def fetch_recent_challengers(limit=10):
                         **user_profile  # Add all user profile data
                     }
                     challengers.append(challenger_record)
+                    logging.info(f"Added challenger: {user_profile.get('UserName', 'Unknown')} ({user_id})")
                 else:
-                    logging.warning(f"No profile found for user {user_id}")
+                    logging.warning(f"No profile found for challenger user {user_id}")
             except Exception as e:
-                logging.error(f"Error fetching profile for user {user_id}: {e}")
+                logging.error(f"Error fetching profile for challenger {user_id}: {e}")
         
-        logging.info(f"Found {len(challengers)} recent challengers in last 24 hours")
+        logging.info(f"Found {len(challengers)} challengers with profiles")
         return challengers
         
     except Exception as e:
-        logging.error(f"Error fetching recent challengers: {e}")
+        logging.error(f"Error fetching challengers: {e}")
         return []
 
 def calculate_payment_stats(payments):
     """Calculate basic statistics from payments data"""
     if not payments:
-        return {}
+        return {
+            'total_amount': 0,
+            'average_amount': 0,
+            'count': 0,
+            'status_breakdown': {},
+            'currency_breakdown': {}
+        }
     
     df = pd.DataFrame(payments)
     
@@ -298,14 +289,22 @@ def calculate_payment_stats(payments):
         stats['total_amount'] = df['amount'].sum()
         stats['average_amount'] = df['amount'].mean()
         stats['count'] = len(df)
+    else:
+        stats['total_amount'] = 0
+        stats['average_amount'] = 0
+        stats['count'] = len(df)
     
     if 'status' in df.columns:
         status_counts = df['status'].value_counts().to_dict()
         stats['status_breakdown'] = status_counts
+    else:
+        stats['status_breakdown'] = {}
     
     if 'currency' in df.columns:
         currency_counts = df['currency'].value_counts().to_dict()
         stats['currency_breakdown'] = currency_counts
+    else:
+        stats['currency_breakdown'] = {}
     
     return stats
 
@@ -338,6 +337,7 @@ else:
     st.dataframe(users_df[display_cols], use_container_width=True)
 
 st.divider()
+
 # --- LATEST 20 CHALLENGERS SECTION ---
 st.header("🎯 Latest 20 Challengers (Paying Users)")
 
@@ -490,6 +490,5 @@ if user_id_input:
             st.json(user_profile)
     else:
         st.error(f"No user profile found for UID: {user_id_input}")
-
 
 st.divider()
