@@ -339,7 +339,7 @@ else:
 st.divider()
 
 # --- LATEST 20 CHALLENGERS SECTION ---
-st.header("🎯 Latest 20 Challengers (Paying Users)")
+st.header("🎯 Latest 20 Challengers")
 
 with st.spinner("Loading latest challengers..."):
     challengers = fetch_recent_challengers(limit=20)
@@ -377,7 +377,7 @@ else:
 st.divider()
 
 # --- LATEST 20 COMPLETED PAYMENTS SECTION ---
-st.header("💸 Latest 20 Completed Payments")
+st.header("💸 Latest 20 Payments")
 
 with st.spinner("Loading latest completed payments..."):
     completed_payments = fetch_recent_completed_payments(limit=20)
